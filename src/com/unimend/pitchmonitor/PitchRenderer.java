@@ -68,14 +68,6 @@ final class PitchRenderer {
 
     private void drawBackground(Canvas canvas) {
         canvas.drawColor(Color.BLACK);
-        paint.setStyle(Paint.Style.FILL); paint.setAntiAlias(false);
-        for (int y = 0; y < HEIGHT; y += 30) {
-            for (int x = 0; x < WIDTH; x += 30) {
-                int alpha = 5 + ((x / 30 * 7 + y / 30 * 11) % 3) * 3;
-                paint.setColor(Color.argb(alpha, 255, 255, 255));
-                canvas.drawRect(x, y, x + 30, y + 30, paint);
-            }
-        }
         paint.setAntiAlias(true);
     }
 

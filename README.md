@@ -4,7 +4,7 @@ Nothing 风格的 Android `3×1` 实时桌面组件，显示当前音名、频�
 
 ![点阵音高监视器实机截图](screenshots/widget-live.png)
 
-- 使用 `AudioRecord` 采集麦克风 PCM，YIN 算法估计人声或乐器基频。
+- 使用纯黑卡片背景；`AudioRecord` 采集麦克风 PCM，YIN 算法估计人声或乐器基频。
 - 音频以约 21 FPS 分析，桌面最多 10 FPS 更新，避免每个采样事件跨 Binder 推送位图。
 - dBFS 与音高复用同一帧：白色为正常、黄色为较强、红色为接近削波。
 - 手机麦克风未经声压校准，因此默认显示 dBFS，不冒充专业声级计的 dB SPL。
