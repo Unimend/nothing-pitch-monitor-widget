@@ -1,0 +1,4 @@
+build/
+*.keystore
+local.properties
+.DS_Store

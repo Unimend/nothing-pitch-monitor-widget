@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">点阵音高监视器</string>
+    <string name="widget_description">实时显示音高、音准轨迹和声音强度</string>
+</resources>
