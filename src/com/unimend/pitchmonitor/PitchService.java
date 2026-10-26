@@ -7,8 +7,10 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.appwidget.AppWidgetManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.media.AudioFormat;
@@ -16,6 +18,7 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.widget.RemoteViews;
 
@@ -23,9 +26,11 @@ import java.util.Arrays;
 
 public class PitchService extends Service {
     static final String ACTION_START = "com.unimend.pitchmonitor.START";
-    private static final int SAMPLE_RATE = 44100;
+    private static final int SAMPLE_RATE = 22050;
     private static final int FRAME_SIZE = 2048;
-    private static final long RENDER_INTERVAL_MS = 100L;
+    private static final long RENDER_INTERVAL_MS = 200L;
+    private static final long SILENCE_TIMEOUT_MS = 2L * 60L * 1000L;
+    private static final long MAX_SESSION_MS = 30L * 60L * 1000L;
     private static volatile long lastHeartbeat;
 
     private final float[] history = new float[48];
@@ -40,7 +45,18 @@ public class PitchService extends Service {
     private float peakDb = -80f;
     private long peakAt;
     private long lastRender;
+    private long lastSignalAt;
+    private long sessionStartedAt;
     private int frameBufferIndex;
+    private boolean receiverRegistered;
+
+    private final BroadcastReceiver screenReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                publishIdleAndStop();
+            }
+        }
+    };
 
     @Override public void onCreate() {
         super.onCreate();
@@ -53,15 +69,18 @@ public class PitchService extends Service {
                 Bitmap.Config.ARGB_8888);
         frameBuffers[0].setDensity(Bitmap.DENSITY_NONE);
         frameBuffers[1].setDensity(Bitmap.DENSITY_NONE);
+        IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        registerReceiver(screenReceiver, filter);
+        receiverRegistered = true;
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         startForeground(71, notification());
-        if (PitchWidget.ids(this).length == 0 || !hasMicPermission()) {
+        if (PitchWidget.ids(this).length == 0 || !hasMicPermission() || !isInteractive()) {
             stopSelf(); return START_NOT_STICKY;
         }
         if (!recording) startRecording();
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     private void startRecording() {
@@ -78,7 +97,9 @@ public class PitchService extends Service {
             publishIdleAndStop(); return;
         }
         recording = true;
-        lastHeartbeat = SystemClock.elapsedRealtime();
+        sessionStartedAt = SystemClock.elapsedRealtime();
+        lastSignalAt = sessionStartedAt;
+        lastHeartbeat = sessionStartedAt;
         worker = new Thread(new Runnable() {
             @Override public void run() { captureLoop(); }
         }, "PitchCapture");
@@ -108,6 +129,12 @@ public class PitchService extends Service {
                 if (Float.isNaN(smoothedMidi) || Math.abs(midi - smoothedMidi) > 1.5f) smoothedMidi = midi;
                 else smoothedMidi = smoothedMidi * 0.72f + midi * 0.28f;
                 midi = smoothedMidi;
+            }
+            if (!Float.isNaN(midi) || db > -45f) lastSignalAt = now;
+            if (now - lastSignalAt >= SILENCE_TIMEOUT_MS
+                    || now - sessionStartedAt >= MAX_SESSION_MS) {
+                publishIdleAndStop();
+                break;
             }
             pushHistory(midi);
             if (now - lastRender >= RENDER_INTERVAL_MS) {
@@ -159,12 +186,17 @@ public class PitchService extends Service {
                 == PackageManager.PERMISSION_GRANTED;
     }
 
+    private boolean isInteractive() {
+        PowerManager manager = (PowerManager) getSystemService(POWER_SERVICE);
+        return manager == null || manager.isInteractive();
+    }
+
     private Notification notification() {
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel channel = new NotificationChannel(
                     "pitch_monitor", "音高监视器", NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("实时麦克风音高和声音强度");
+            channel.setDescription("实时麦克风音高和声音强度；熄屏自动停止");
             manager.createNotificationChannel(channel);
         }
         Intent open = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -173,7 +205,7 @@ public class PitchService extends Service {
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, "pitch_monitor") : new Notification.Builder(this);
         return builder.setContentTitle("点阵音高监视器")
-                .setContentText("正在监听音高与 dBFS，点击桌面组件可停止")
+                .setContentText("正在监听；熄屏、静音超时或 30 分钟后自动停止")
                 .setSmallIcon(android.R.drawable.ic_btn_speak_now)
                 .setContentIntent(pending).setOngoing(true).build();
     }
@@ -189,6 +221,10 @@ public class PitchService extends Service {
         }
         lastHeartbeat = 0L;
         PitchWidget.publishIdle(this);
+        if (receiverRegistered) {
+            unregisterReceiver(screenReceiver);
+            receiverRegistered = false;
+        }
         for (Bitmap bitmap : frameBuffers) {
             if (bitmap != null && !bitmap.isRecycled()) bitmap.recycle();
         }
