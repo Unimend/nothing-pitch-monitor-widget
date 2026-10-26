@@ -18,7 +18,6 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Build;
 import android.os.IBinder;
-import android.os.PowerManager;
 import android.os.SystemClock;
 import android.widget.RemoteViews;
 
@@ -26,10 +25,9 @@ import java.util.Arrays;
 
 public class PitchService extends Service {
     static final String ACTION_START = "com.unimend.pitchmonitor.START";
-    private static final int SAMPLE_RATE = 22050;
+    private static final int SAMPLE_RATE = 44100;
     private static final int FRAME_SIZE = 2048;
-    private static final long RENDER_INTERVAL_MS = 200L;
-    private static final long SILENCE_TIMEOUT_MS = 2L * 60L * 1000L;
+    private static final long RENDER_INTERVAL_MS = 100L;
     private static final long MAX_SESSION_MS = 30L * 60L * 1000L;
     private static volatile long lastHeartbeat;
 
@@ -45,7 +43,6 @@ public class PitchService extends Service {
     private float peakDb = -80f;
     private long peakAt;
     private long lastRender;
-    private long lastSignalAt;
     private long sessionStartedAt;
     private int frameBufferIndex;
     private boolean receiverRegistered;
@@ -76,11 +73,11 @@ public class PitchService extends Service {
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         startForeground(71, notification());
-        if (PitchWidget.ids(this).length == 0 || !hasMicPermission() || !isInteractive()) {
+        if (PitchWidget.ids(this).length == 0 || !hasMicPermission()) {
             stopSelf(); return START_NOT_STICKY;
         }
         if (!recording) startRecording();
-        return START_NOT_STICKY;
+        return START_STICKY;
     }
 
     private void startRecording() {
@@ -98,7 +95,6 @@ public class PitchService extends Service {
         }
         recording = true;
         sessionStartedAt = SystemClock.elapsedRealtime();
-        lastSignalAt = sessionStartedAt;
         lastHeartbeat = sessionStartedAt;
         worker = new Thread(new Runnable() {
             @Override public void run() { captureLoop(); }
@@ -130,9 +126,7 @@ public class PitchService extends Service {
                 else smoothedMidi = smoothedMidi * 0.72f + midi * 0.28f;
                 midi = smoothedMidi;
             }
-            if (!Float.isNaN(midi) || db > -45f) lastSignalAt = now;
-            if (now - lastSignalAt >= SILENCE_TIMEOUT_MS
-                    || now - sessionStartedAt >= MAX_SESSION_MS) {
+            if (now - sessionStartedAt >= MAX_SESSION_MS) {
                 publishIdleAndStop();
                 break;
             }
@@ -186,11 +180,6 @@ public class PitchService extends Service {
                 == PackageManager.PERMISSION_GRANTED;
     }
 
-    private boolean isInteractive() {
-        PowerManager manager = (PowerManager) getSystemService(POWER_SERVICE);
-        return manager == null || manager.isInteractive();
-    }
-
     private Notification notification() {
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= 26) {
@@ -205,7 +194,7 @@ public class PitchService extends Service {
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, "pitch_monitor") : new Notification.Builder(this);
         return builder.setContentTitle("点阵音高监视器")
-                .setContentText("正在监听；熄屏、静音超时或 30 分钟后自动停止")
+                .setContentText("正在监听；熄屏或 30 分钟后自动停止")
                 .setSmallIcon(android.R.drawable.ic_btn_speak_now)
                 .setContentIntent(pending).setOngoing(true).build();
     }
