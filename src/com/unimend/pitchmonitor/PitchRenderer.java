@@ -34,7 +34,8 @@ final class PitchRenderer {
         text(canvas, "PITCH", 68f, 48f, 112f, Color.WHITE, Paint.Align.LEFT);
         text(canvas, "MONITOR", 43f, 48f, 166f, 0xff777777, Paint.Align.LEFT);
         drawIdleTrace(canvas);
-        text(canvas, "TAP TO LISTEN", 34f, 852f, 265f, 0xffaaaaaa, Paint.Align.RIGHT);
+        text(canvas, "TAP TO LISTEN", 34f, (GRAPH_LEFT + GRAPH_RIGHT) / 2f,
+                235f, 0xffaaaaaa, Paint.Align.CENTER);
         drawDbFrame(canvas, -80f, -80f, false);
         return bitmap;
     }
